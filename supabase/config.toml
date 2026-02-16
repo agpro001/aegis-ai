@@ -1,0 +1,4 @@
+project_id = "dsaawxzwvilxmfgjahlk"
+
+[functions.threat-chat]
+verify_jwt = false
