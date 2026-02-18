@@ -14,6 +14,50 @@ export type Database = {
   }
   public: {
     Tables: {
+      alerts: {
+        Row: {
+          alert_type: string
+          body: string | null
+          id: string
+          incident_id: string | null
+          sent_at: string
+          severity: string
+          status: string
+          subject: string
+          user_id: string
+        }
+        Insert: {
+          alert_type?: string
+          body?: string | null
+          id?: string
+          incident_id?: string | null
+          sent_at?: string
+          severity?: string
+          status?: string
+          subject: string
+          user_id: string
+        }
+        Update: {
+          alert_type?: string
+          body?: string | null
+          id?: string
+          incident_id?: string | null
+          sent_at?: string
+          severity?: string
+          status?: string
+          subject?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alerts_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incidents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       incidents: {
         Row: {
           ai_confidence: number | null

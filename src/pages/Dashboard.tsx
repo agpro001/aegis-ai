@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Shield, AlertTriangle, Activity, Clock, Zap, TrendingUp, RefreshCw, Newspaper } from "lucide-react";
+import { Shield, AlertTriangle, Activity, Clock, Zap, TrendingUp, RefreshCw, Newspaper, Globe } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AppLayout } from "@/components/AppLayout";
@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/AuthProvider";
 import { toast } from "sonner";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 const ThreatMeter = ({ score }: { score: number }) => {
   const radius = 80;
@@ -57,13 +58,27 @@ const levelColors: Record<string, string> = {
   critical: "text-neon-red",
 };
 
+const sourceIcons: Record<string, string> = {
+  twitter: "🐦",
+  news: "📰",
+  blogs: "📝",
+  youtube: "▶️",
+  reddit: "💬",
+  telegram: "✈️",
+};
+
+const CHART_COLORS = ["hsl(145, 100%, 50%)", "hsl(50, 100%, 55%)", "hsl(0, 100%, 55%)"];
+
 const Dashboard = () => {
   const { user } = useAuth();
   const [heartbeat, setHeartbeat] = useState("3s ago");
   const [logs, setLogs] = useState<any[]>([]);
   const [stats, setStats] = useState({ checks: 0, threats: 0, incidents: 0 });
   const [fetchingNews, setFetchingNews] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [threatScore, setThreatScore] = useState(78);
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [pieData, setPieData] = useState<any[]>([]);
 
   useEffect(() => {
     let seconds = 3;
@@ -74,13 +89,11 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Load real intelligence logs
   useEffect(() => {
     if (!user) return;
     loadLogs();
     loadStats();
 
-    // Subscribe to realtime updates
     const channel = supabase
       .channel("intel-logs")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "intelligence_logs" }, (payload) => {
@@ -91,6 +104,10 @@ const Dashboard = () => {
 
     return () => { supabase.removeChannel(channel); };
   }, [user]);
+
+  useEffect(() => {
+    buildChartData(logs);
+  }, [logs]);
 
   const loadLogs = async () => {
     const { data } = await supabase
@@ -120,10 +137,30 @@ const Dashboard = () => {
     setThreatScore(score);
   };
 
+  const buildChartData = (data: any[]) => {
+    // Time-series: group by hour
+    const hourMap: Record<string, { safe: number; watch: number; critical: number }> = {};
+    data.forEach((log) => {
+      const hour = new Date(log.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      if (!hourMap[hour]) hourMap[hour] = { safe: 0, watch: 0, critical: 0 };
+      hourMap[hour][log.threat_level as "safe" | "watch" | "critical"]++;
+    });
+    setChartData(Object.entries(hourMap).reverse().map(([time, counts]) => ({ time, ...counts })));
+
+    // Pie: by threat level
+    const safe = data.filter(d => d.threat_level === "safe").length;
+    const watch = data.filter(d => d.threat_level === "watch").length;
+    const critical = data.filter(d => d.threat_level === "critical").length;
+    setPieData([
+      { name: "Safe", value: safe },
+      { name: "Watch", value: watch },
+      { name: "Critical", value: critical },
+    ].filter(d => d.value > 0));
+  };
+
   const fetchNews = async () => {
     setFetchingNews(true);
     try {
-      // Get first sentinel for context
       const { data: sentinels } = await supabase.from("sentinels").select("id, twitter_keywords").limit(1);
       const sentinel = sentinels?.[0];
 
@@ -155,6 +192,41 @@ const Dashboard = () => {
     }
   };
 
+  const runLiveScan = async () => {
+    setScanning(true);
+    try {
+      const { data: sentinels } = await supabase.from("sentinels").select("id, twitter_keywords").limit(1);
+      const sentinel = sentinels?.[0];
+
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/live-scan`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({
+          sentinel_id: sentinel?.id || null,
+          keywords: sentinel?.twitter_keywords || "DeFi exploit hack vulnerability",
+          sources: ["twitter", "news", "blogs", "youtube", "reddit", "telegram"],
+        }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || "Scan failed");
+      }
+
+      const data = await resp.json();
+      toast.success(`Live scan complete: ${data.items?.length || 0} items from 6 sources`);
+      loadLogs();
+      loadStats();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setScanning(false);
+    }
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -167,12 +239,22 @@ const Dashboard = () => {
             <Button
               size="sm"
               variant="outline"
+              onClick={runLiveScan}
+              disabled={scanning}
+              className="gap-2 font-body text-xs border-neon-magenta/30 hover:glow-magenta"
+            >
+              <Globe className="h-3 w-3" />
+              {scanning ? "Scanning..." : "Live Scan All"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
               onClick={fetchNews}
               disabled={fetchingNews}
               className="gap-2 font-body text-xs"
             >
               <Newspaper className="h-3 w-3" />
-              {fetchingNews ? "Scanning..." : "Scan Now"}
+              {fetchingNews ? "Scanning..." : "News Scan"}
             </Button>
             <div className="flex items-center gap-2">
               <span className="relative flex h-3 w-3">
@@ -203,48 +285,102 @@ const Dashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className="lg:col-span-2 border-border bg-card/60 backdrop-blur-sm">
+          {/* Live Threat Chart */}
+          <Card className="border-border bg-card/60 backdrop-blur-sm">
             <CardHeader>
-              <CardTitle className="font-display text-sm font-semibold text-foreground flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4 text-primary" /> Live Intelligence Feed
-                </span>
-                <Button size="icon" variant="ghost" onClick={loadLogs} className="h-6 w-6">
-                  <RefreshCw className="h-3 w-3" />
-                </Button>
+              <CardTitle className="font-display text-sm font-semibold text-foreground flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-neon-green" /> Threat Timeline
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-80 overflow-y-auto space-y-1.5 font-mono text-xs">
-                {logs.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <p>No intelligence data yet.</p>
-                    <Button size="sm" variant="outline" onClick={fetchNews} disabled={fetchingNews} className="mt-3 gap-2 font-body">
-                      <Newspaper className="h-3 w-3" /> Run First Scan
-                    </Button>
-                  </div>
-                ) : (
-                  logs.map((log, i) => (
-                    <motion.div
-                      key={log.id || i}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className={`flex gap-2 rounded px-2 py-1 ${i === 0 ? "bg-secondary/50" : ""}`}
-                    >
-                      <span className="text-muted-foreground shrink-0">
-                        [{new Date(log.created_at).toLocaleTimeString()}]
-                      </span>
-                      <span className={`uppercase font-bold shrink-0 ${levelColors[log.threat_level] || "text-foreground"}`}>
-                        [{log.threat_level}]
-                      </span>
-                      <span className="text-foreground">{log.source_text || log.ai_analysis || "Analysis pending..."}</span>
-                    </motion.div>
-                  ))
-                )}
-              </div>
+              {chartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={160}>
+                  <AreaChart data={chartData}>
+                    <XAxis dataKey="time" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                    <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                    <Tooltip
+                      contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                    />
+                    <Area type="monotone" dataKey="safe" stackId="1" stroke="hsl(145,100%,50%)" fill="hsl(145,100%,50%,0.2)" />
+                    <Area type="monotone" dataKey="watch" stackId="1" stroke="hsl(50,100%,55%)" fill="hsl(50,100%,55%,0.2)" />
+                    <Area type="monotone" dataKey="critical" stackId="1" stroke="hsl(0,100%,55%)" fill="hsl(0,100%,55%,0.2)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-center py-8 font-body text-xs text-muted-foreground">Run a scan to see chart data</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Threat Distribution Pie */}
+          <Card className="border-border bg-card/60 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="font-display text-sm font-semibold text-foreground flex items-center gap-2">
+                <Shield className="h-4 w-4 text-neon-magenta" /> Threat Distribution
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex justify-center">
+              {pieData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={160}>
+                  <PieChart>
+                    <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                      {pieData.map((_, i) => (
+                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-center py-8 font-body text-xs text-muted-foreground">No data yet</p>
+              )}
             </CardContent>
           </Card>
         </div>
+
+        {/* Intelligence Feed */}
+        <Card className="border-border bg-card/60 backdrop-blur-sm">
+          <CardHeader>
+            <CardTitle className="font-display text-sm font-semibold text-foreground flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-primary" /> Live Intelligence Feed
+              </span>
+              <Button size="icon" variant="ghost" onClick={loadLogs} className="h-6 w-6">
+                <RefreshCw className="h-3 w-3" />
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-80 overflow-y-auto space-y-1.5 font-mono text-xs">
+              {logs.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No intelligence data yet.</p>
+                  <Button size="sm" variant="outline" onClick={runLiveScan} disabled={scanning} className="mt-3 gap-2 font-body">
+                    <Globe className="h-3 w-3" /> Run Live Scan
+                  </Button>
+                </div>
+              ) : (
+                logs.map((log, i) => (
+                  <motion.div
+                    key={log.id || i}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className={`flex gap-2 rounded px-2 py-1 ${i === 0 ? "bg-secondary/50" : ""}`}
+                  >
+                    <span className="shrink-0">{sourceIcons[log.source_type] || "📊"}</span>
+                    <span className="text-muted-foreground shrink-0">
+                      [{new Date(log.created_at).toLocaleTimeString()}]
+                    </span>
+                    <span className={`uppercase font-bold shrink-0 ${levelColors[log.threat_level] || "text-foreground"}`}>
+                      [{log.threat_level}]
+                    </span>
+                    <span className="text-foreground">{log.source_text || log.ai_analysis || "Analysis pending..."}</span>
+                  </motion.div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </AppLayout>
   );

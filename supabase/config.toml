@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.fetch-news]
 verify_jwt = false
+
+[functions.live-scan]
+verify_jwt = false
+
+[functions.send-alert]
+verify_jwt = false

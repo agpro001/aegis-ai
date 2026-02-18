@@ -29,7 +29,7 @@ const AuthPage = () => {
           options: { emailRedirectTo: window.location.origin },
         });
         if (error) throw error;
-        toast.success("Check your email for the confirmation link!");
+        toast.success("Check your email for the confirmation link! After confirming, come back and sign in.");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -85,6 +85,11 @@ const AuthPage = () => {
           <p className="mt-1 font-body text-muted-foreground">
             {mode === "login" ? "Welcome back, Commander" : "Join the Defense Network"}
           </p>
+          {mode === "signup" && (
+            <p className="mt-2 font-body text-xs text-neon-yellow">
+              After creating your account, confirm via email then sign in to access the dashboard.
+            </p>
+          )}
         </div>
 
         {/* Card */}

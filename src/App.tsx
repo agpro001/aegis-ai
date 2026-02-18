@@ -13,6 +13,7 @@ import BlackBox from "./pages/BlackBox";
 import AiChat from "./pages/AiChat";
 import SettingsPage from "./pages/SettingsPage";
 import DemoPage from "./pages/DemoPage";
+import AlertsPage from "./pages/AlertsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +35,7 @@ const App = () => (
               <Route path="/blackbox" element={<BlackBox />} />
               <Route path="/chat" element={<AiChat />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/alerts" element={<AlertsPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
