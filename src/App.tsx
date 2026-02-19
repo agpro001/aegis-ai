@@ -14,6 +14,7 @@ import AiChat from "./pages/AiChat";
 import SettingsPage from "./pages/SettingsPage";
 import DemoPage from "./pages/DemoPage";
 import AlertsPage from "./pages/AlertsPage";
+import ThreatMap from "./pages/ThreatMap";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -36,6 +37,7 @@ const App = () => (
               <Route path="/chat" element={<AiChat />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/alerts" element={<AlertsPage />} />
+              <Route path="/threat-map" element={<ThreatMap />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

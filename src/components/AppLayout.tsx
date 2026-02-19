@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield, LayoutDashboard, Radar, Box, Settings, LogOut,
-  ChevronLeft, ChevronRight, MessageSquare, Bell
+  ChevronLeft, ChevronRight, MessageSquare, Bell, Globe
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { BackButton } from "@/components/BackButton";
@@ -16,6 +16,7 @@ const navItems = [
   { icon: Box, label: "Black Box", to: "/blackbox" },
   { icon: MessageSquare, label: "AI Chat", to: "/chat" },
   { icon: Bell, label: "Alerts", to: "/alerts" },
+  { icon: Globe, label: "Threat Map", to: "/threat-map" },
   { icon: Settings, label: "Settings", to: "/settings" },
 ];
 
