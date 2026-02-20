@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Globe, Shield, AlertTriangle, Zap, Activity, Radio, TrendingUp, TrendingDown, Minus, Building2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { AppLayout } from "@/components/AppLayout";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -70,6 +71,7 @@ const ThreatMap = () => {
   const [loading, setLoading] = useState(true);
   const [attackCount, setAttackCount] = useState(0);
   const [feedPage, setFeedPage] = useState(0);
+  const [dataSource, setDataSource] = useState<"live" | "estimated">("estimated");
 
   const fetchData = useCallback(async () => {
     try {
@@ -78,6 +80,7 @@ const ThreatMap = () => {
       if (result?.success && result.data) {
         setData(result.data);
         setAttackCount(result.data.attacks_today);
+        setDataSource(result.source === "live" ? "live" : "estimated");
       }
     } catch (e) {
       console.error("Failed to fetch threat data:", e);
@@ -146,7 +149,13 @@ const ThreatMap = () => {
               Real-time global attack visualization powered by FortiGuard ThreatCloud
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <Badge
+              variant={dataSource === "live" ? "default" : "secondary"}
+              className={dataSource === "live" ? "bg-neon-green/20 text-neon-green border-neon-green/40 font-mono text-[10px]" : "font-mono text-[10px]"}
+            >
+              {dataSource === "live" ? "⚡ FortiGuard Live" : "📊 Estimated Data"}
+            </Badge>
             <span className="relative flex h-3 w-3">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-neon-red opacity-75" />
               <span className="relative inline-flex h-3 w-3 rounded-full bg-neon-red" />
@@ -307,7 +316,11 @@ const ThreatMap = () => {
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span className="font-mono text-[10px] text-muted-foreground">
-                            {ind.threat_count.toLocaleString()}K
+                            {ind.threat_count >= 1000000
+                              ? `${(ind.threat_count / 1000000).toFixed(1)}M`
+                              : ind.threat_count >= 1000
+                                ? `${(ind.threat_count / 1000).toFixed(0)}K`
+                                : ind.threat_count.toLocaleString()}
                           </span>
                           <TrendIcon trend={ind.trend} />
                           <span className={`font-mono text-[9px] ${ind.trend === "up" ? "text-neon-red" : ind.trend === "down" ? "text-neon-green" : "text-muted-foreground"}`}>
