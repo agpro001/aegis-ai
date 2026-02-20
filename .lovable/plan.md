@@ -1,56 +1,63 @@
-# Threat Map Upgrade: FortiGuard Integration
 
-## Overview
 
-Replace the Kaspersky cyber threat 2d map with the **FortiGuard Threat Map** and enhance the page with real-time attack data panels showing live attacks, top targeted countries, and top targeted industries.
+# Live FortiGuard Threat Data Integration
+
+## Problem
+The current threat map page uses AI-generated data that simulates realistic threat intelligence. The FortiGuard threat map website loads all its data dynamically via JavaScript/WebSockets, meaning a simple HTTP fetch returns empty values (all "0"). We need a way to scrape the fully-rendered page to extract real live data.
+
+## Solution
+Use the **Firecrawl** connector to scrape the FortiGuard threat map page with JavaScript rendering enabled. Firecrawl can wait for the page to fully load, then extract the actual live attack data, top targeted countries, and top targeted industries directly from the rendered HTML.
 
 ## Changes
 
-### 1. Replace Map Source
+### 1. Connect Firecrawl
+- Enable the Firecrawl connector so the edge function can scrape FortiGuard's JS-rendered page
+- This gives us `FIRECRAWL_API_KEY` as an environment variable in backend functions
 
-- Swap the iframe from `cybermap.kaspersky.com` to `threatmap.fortiguard.com`
-- Apply CSS filter: `grayscale(0.4) contrast(1.1)` to match the cyberpunk aesthetic
-- Update all attribution text from Kaspersky to FortiGuard
+### 2. Rewrite the `threat-map-data` Edge Function
+- Replace the current AI-based approach with a Firecrawl scrape of `https://threatmap.fortiguard.com/`
+- Use Firecrawl's `scrape` endpoint with `waitFor: 5000` (5 seconds) to let the page fully render its WebSocket-fed data
+- Extract the page content in markdown format
+- Parse the scraped markdown to extract:
+  - **Real-Time Attacks**: source city/country, destination city/country, threat name, severity
+  - **Top Targeted Countries**: country names, flags, attack counts
+  - **Top Targeted Industries**: industry names, attack counts
+- Use AI (Lovable AI gateway) as a **parser** to structure the scraped markdown into clean JSON, not to generate fake data
+- Fall back to the current AI-generated approach if Firecrawl fails
 
-### 2. Real-Time Attack Feed
+### 3. Update `ThreatMap.tsx` Frontend
+- Minor adjustments to handle the slightly different data shape from real FortiGuard data (e.g., city-level granularity instead of just country)
+- Add a "Data Source: FortiGuard Live" indicator showing data freshness
+- Keep the existing animated feed, country bars, and industry cards
 
-- Create a backend function that scrapes live threat data from FortiGuard's public threat map page using the Lovable AI model
-- The function will fetch current attack statistics and return structured data (top countries, industries, recent attacks)
-- Frontend polls this function periodically to keep data fresh
+## Data Flow
 
-### 3. Enhanced UI Panels
-
-- **Real-Time Attacks**: Animated scrolling feed showing origin, destination, attack type, and timestamp with color-coded severity
-- **Top Targeted Countries**: Horizontal bar chart with country flags and percentage bars, animated on load
-- **Top Targeted Industries**: Card grid showing industries (Finance, Government, Healthcare, Technology, Education) with threat counts and trend indicators
-- All panels update dynamically from the backend function data
-
-### 4. Layout
-
-- Full-width FortiGuard iframe map (3/4 width on desktop)
-- Right sidebar (1/4 width) with stacked panels: Attack Legend, Live Attacks, Top Countries, Top Industries
-- Stats bar above the map stays with live counters
-
----
+```text
+FortiGuard Website (JS-rendered)
+        |
+   Firecrawl scrapes with waitFor
+        |
+   Raw markdown with live data
+        |
+   AI parses markdown into JSON
+        |
+   Edge function returns structured data
+        |
+   ThreatMap.tsx renders live panels
+```
 
 ## Technical Details
 
-### Files Modified
+### Edge Function (`supabase/functions/threat-map-data/index.ts`)
+- Step 1: Call Firecrawl scrape API on `https://threatmap.fortiguard.com/` with `formats: ['markdown']` and `waitFor: 5000`
+- Step 2: Send the scraped markdown to Lovable AI gateway with a parsing prompt and tool call schema (same schema as current)
+- Step 3: Return the parsed structured JSON
+- Fallback: If Firecrawl fails (rate limit, timeout), fall back to the current AI-generation approach
 
-- `src/pages/ThreatMap.tsx` — Replace iframe source, update UI panels with new data structure, add polling logic to fetch from backend function
+### Frontend (`src/pages/ThreatMap.tsx`)
+- Add a small badge showing "Live Data" vs "Estimated Data" based on the response
+- No major layout changes needed -- the existing panels already match the data structure
 
-### Files Created
+### Prerequisites
+- Firecrawl connector must be connected first (will prompt during implementation)
 
-- `supabase/functions/threat-map-data/index.ts` — Backend function that uses Lovable AI to generate current realistic threat intelligence data (top targeted countries, industries, live attack events) based on real-world knowledge. Returns structured JSON.
-
-### Data Flow
-
-1. `ThreatMap.tsx` calls `supabase.functions.invoke('threat-map-data')` on mount and every 30 seconds
-2. The backend function uses AI to produce up-to-date threat landscape data (countries, industries, attack types with realistic volumes)
-3. Frontend renders the data in animated panels alongside the FortiGuard iframe
-
-### No Database Changes Required
-
-All data is fetched live from the backend function — no new tables needed.
-
-All will have to work properly and all must be realistic time data no simulation and all data from fortiguard.
