@@ -182,7 +182,9 @@ const Dashboard = () => {
       }
 
       const data = await resp.json();
-      toast.success(`Fetched ${data.news?.length || 0} intelligence items`);
+      const liveLabel = data.has_live_data ? " (includes live web data)" : "";
+      toast.success(`Fetched ${data.news?.length || 0} intelligence items${liveLabel}`);
+
       loadLogs();
       loadStats();
     } catch (e: any) {
@@ -217,7 +219,9 @@ const Dashboard = () => {
       }
 
       const data = await resp.json();
-      toast.success(`Live scan complete: ${data.items?.length || 0} items from 6 sources`);
+      const liveCount = data.web_results_count || 0;
+      toast.success(`Live scan complete: ${data.items?.length || 0} items (${liveCount} from live web, rest AI-analyzed)`);
+
       loadLogs();
       loadStats();
     } catch (e: any) {

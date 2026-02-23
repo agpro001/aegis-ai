@@ -6,6 +6,40 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+async function searchWebWithFirecrawl(keywords: string): Promise<any[]> {
+  const apiKey = Deno.env.get("FIRECRAWL_API_KEY");
+  if (!apiKey) return [];
+
+  try {
+    console.log("Firecrawl searching for:", keywords);
+    const resp = await fetch("https://api.firecrawl.dev/v1/search", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: `${keywords} crypto security threat vulnerability 2025`,
+        limit: 5,
+        tbs: "qdr:d",
+      }),
+    });
+
+    if (!resp.ok) {
+      console.error("Firecrawl search failed:", resp.status);
+      return [];
+    }
+
+    const data = await resp.json();
+    const results = data.data || [];
+    console.log(`Firecrawl found ${results.length} real web results`);
+    return results;
+  } catch (e) {
+    console.error("Firecrawl search error:", e);
+    return [];
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -18,17 +52,29 @@ serve(async (req) => {
     const sourceList = sources || ["twitter", "news", "blogs", "youtube", "reddit", "telegram"];
     const sourceStr = sourceList.join(", ");
 
+    // Step 1: Get real web data via Firecrawl
+    const webResults = await searchWebWithFirecrawl(keywords || "DeFi exploit hack");
+
+    const webContext = webResults.length > 0
+      ? `\n\nREAL WEB ARTICLES FOUND TODAY (use these as basis for at least ${Math.min(webResults.length, 4)} items - use the REAL titles, URLs, and content. Analyze their actual threat level):\n${webResults.map((r: any, i: number) => `${i + 1}. Title: "${r.title}" | Desc: ${r.description || "N/A"} | URL: ${r.url}`).join("\n")}`
+      : "";
+
+    // Step 2: AI analyzes real data + generates additional items
     const prompt = `You are a real-time DeFi security scanner monitoring multiple sources: ${sourceStr}.
 
-Generate 8 realistic, current threat intelligence items as if scanning live from these sources right now. ${keywords ? `Focus on: ${keywords}` : "Cover the latest DeFi/crypto security landscape."}
+Generate 8 threat intelligence items. ${keywords ? `Focus on: ${keywords}` : "Cover the latest DeFi/crypto security landscape."}
+${webContext}
+
+For items based on REAL articles, set is_live to true and include the real URL. For AI-generated items, set is_live to false.
 
 For each item return a JSON array with objects:
 - source_type: one of "${sourceList.join('", "')}"
-- source_text: Realistic post/headline/title from that source. For twitter reference real accounts (@PeckShield, @CertiK, @zachxbt, @BlockSecTeam, @SlowMist_Team). For youtube use real channel names. For reddit use r/cryptocurrency, r/defi. For blogs use real security blog names.
+- source_text: Realistic post/headline/title from that source. For real articles, use the actual title. For twitter reference real accounts (@PeckShield, @CertiK, @zachxbt, @BlockSecTeam, @SlowMist_Team). 
 - threat_level: "safe", "watch", or "critical"
 - confidence: number 0.5-0.99
 - ai_analysis: 1-2 sentence analysis
-- url: A plausible URL for the source
+- url: Real URL for web articles, plausible URL for AI-generated items
+- is_live: boolean - true for items from real web articles, false for AI-generated
 
 Return ONLY valid JSON array.`;
 
@@ -69,6 +115,8 @@ Return ONLY valid JSON array.`;
       items = [];
     }
 
+    const hasLiveData = items.some((i: any) => i.is_live);
+
     // Save to intelligence_logs if authenticated
     const authHeader = req.headers.get("Authorization");
     if (sentinel_id && authHeader) {
@@ -97,17 +145,17 @@ Return ONLY valid JSON array.`;
           // Auto-create incidents for critical threats
           const criticals = items.filter((i: any) => i.threat_level === "critical");
           for (const critical of criticals) {
-            await supabase.from("incidents").insert({
+            const { data: incidentData } = await supabase.from("incidents").insert({
               sentinel_id,
               user_id: user.id,
               severity: "critical",
               evidence: critical.source_text,
-              source: critical.source_type,
+              source: critical.is_live ? `${critical.source_type} (live)` : critical.source_type,
               ai_confidence: critical.confidence,
               status: "investigating",
-            });
+            }).select("id").single();
 
-            // Send alert
+            // Send alert (with email for critical)
             await fetch(`${supabaseUrl}/functions/v1/send-alert`, {
               method: "POST",
               headers: {
@@ -115,9 +163,10 @@ Return ONLY valid JSON array.`;
                 Authorization: authHeader,
               },
               body: JSON.stringify({
+                incident_id: incidentData?.id,
                 severity: "critical",
                 evidence: critical.source_text,
-                source: critical.source_type,
+                source: critical.is_live ? `${critical.source_type} (live web)` : critical.source_type,
               }),
             });
           }
@@ -125,7 +174,7 @@ Return ONLY valid JSON array.`;
       }
     }
 
-    return new Response(JSON.stringify({ items }), {
+    return new Response(JSON.stringify({ items, has_live_data: hasLiveData, web_results_count: webResults.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
