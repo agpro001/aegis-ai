@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Box, FileText, AlertTriangle, ExternalLink, RefreshCw, History, Skull } from "lucide-react";
+import { Box, FileText, AlertTriangle, ExternalLink, RefreshCw, History, Skull, Globe, Wifi } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -8,6 +8,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/AuthProvider";
+import { toast } from "sonner";
 
 const severityColors: Record<string, string> = {
   critical: "bg-neon-red/10 text-neon-red border-neon-red/20",
@@ -64,6 +65,12 @@ const historicalExploits = [
   },
 ];
 
+const threatLevelColors: Record<string, string> = {
+  critical: "text-neon-red",
+  watch: "text-neon-yellow",
+  safe: "text-neon-green",
+};
+
 const BlackBox = () => {
   const { user } = useAuth();
   const [incidents, setIncidents] = useState<any[]>([]);
@@ -71,12 +78,14 @@ const BlackBox = () => {
   const [loading, setLoading] = useState(true);
   const [showHistory, setShowHistory] = useState(true);
   const [historyIndex, setHistoryIndex] = useState(0);
+  const [webIntel, setWebIntel] = useState<any[]>([]);
+  const [scanningWeb, setScanningWeb] = useState(false);
+  const [hasLiveData, setHasLiveData] = useState(false);
 
   useEffect(() => {
     if (user) loadIncidents();
   }, [user]);
 
-  // Auto-cycle historical exploits
   useEffect(() => {
     if (!showHistory) return;
     const timer = setInterval(() => {
@@ -98,15 +107,120 @@ const BlackBox = () => {
     setLoading(false);
   };
 
+  const scanWeb = async () => {
+    setScanningWeb(true);
+    try {
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/live-scan`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({
+          keywords: "DeFi exploit hack bridge vulnerability smart contract attack",
+          sources: ["news", "twitter", "blogs", "reddit"],
+        }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || "Web scan failed");
+      }
+
+      const data = await resp.json();
+      setWebIntel(data.items || []);
+      setHasLiveData(data.has_live_data || false);
+      toast.success(`Found ${data.items?.length || 0} intel items (${data.web_results_count || 0} from live web)`);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setScanningWeb(false);
+    }
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-foreground flex items-center gap-3">
-            <Box className="h-7 w-7 text-neon-magenta" /> Black Box
-          </h1>
-          <p className="font-body text-muted-foreground">Incident forensics & response</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="font-display text-2xl font-bold text-foreground flex items-center gap-3">
+              <Box className="h-7 w-7 text-neon-magenta" /> Black Box
+            </h1>
+            <p className="font-body text-muted-foreground">Incident forensics & live web intelligence</p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={scanWeb}
+            disabled={scanningWeb}
+            className="gap-2 font-body text-xs border-neon-cyan/30 hover:border-neon-cyan"
+          >
+            <Globe className="h-3 w-3" />
+            {scanningWeb ? "Scanning Web..." : "Scan Web for Exploits"}
+          </Button>
         </div>
+
+        {/* Live Web Intelligence */}
+        {webIntel.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+            <Card className="border-neon-cyan/20 bg-card/60 backdrop-blur-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="font-display text-sm flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Wifi className="h-4 w-4 text-neon-cyan" /> Live Web Intelligence
+                  </span>
+                  <Badge variant="outline" className={`text-[10px] font-mono ${hasLiveData ? "border-neon-green/50 text-neon-green" : "border-muted text-muted-foreground"}`}>
+                    {hasLiveData ? "⚡ Live Data" : "📊 AI Analysis"}
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {webIntel.map((item: any, i: number) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      className="flex gap-3 items-start p-2 rounded-lg bg-background/30 hover:bg-background/50 transition-colors"
+                    >
+                      <div className="flex flex-col items-center gap-1 shrink-0 pt-0.5">
+                        <Badge
+                          variant="outline"
+                          className={`text-[9px] font-mono px-1.5 ${severityColors[item.threat_level] || "text-foreground"}`}
+                        >
+                          {item.threat_level?.toUpperCase()}
+                        </Badge>
+                        {item.is_live && (
+                          <span className="text-[8px] text-neon-green font-mono">LIVE</span>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-body text-sm text-foreground leading-snug">{item.source_text}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="font-mono text-[10px] text-muted-foreground">{item.source_type}</span>
+                          {item.url && (
+                            <a
+                              href={item.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
+                            >
+                              <ExternalLink className="h-2.5 w-2.5" /> source
+                            </a>
+                          )}
+                        </div>
+                        {item.ai_analysis && (
+                          <p className="font-body text-xs text-muted-foreground mt-1">{item.ai_analysis}</p>
+                        )}
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
         {/* Historical Exploits Showcase */}
         {showHistory && (
@@ -161,6 +275,7 @@ const BlackBox = () => {
           </motion.div>
         )}
 
+        {/* Incident History */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <Card className="border-border bg-card/60 backdrop-blur-sm">
             <CardHeader>
@@ -198,7 +313,12 @@ const BlackBox = () => {
                       >
                         <TableCell className="font-mono text-xs text-primary">{inc.id.slice(0, 8)}</TableCell>
                         <TableCell className="font-body text-xs">{new Date(inc.created_at).toLocaleString()}</TableCell>
-                        <TableCell className="font-body text-xs">{inc.source || "AI Analysis"}</TableCell>
+                        <TableCell className="font-body text-xs">
+                          <span className="flex items-center gap-1">
+                            {inc.source?.includes("live") && <Wifi className="h-3 w-3 text-neon-green" />}
+                            {inc.source || "AI Analysis"}
+                          </span>
+                        </TableCell>
                         <TableCell>
                           <Badge variant="outline" className={`font-mono text-[10px] ${severityColors[inc.severity] || ""}`}>
                             {inc.severity?.toUpperCase()}
@@ -228,7 +348,12 @@ const BlackBox = () => {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="rounded-lg border border-border bg-background/50 p-4">
-                  <p className="font-mono text-xs text-muted-foreground mb-1">Source: {selected.source || "AI Analysis"}</p>
+                  <p className="font-mono text-xs text-muted-foreground mb-1">
+                    Source: {selected.source || "AI Analysis"}
+                    {selected.source?.includes("live") && (
+                      <Badge variant="outline" className="ml-2 text-[9px] border-neon-green/30 text-neon-green">LIVE WEB</Badge>
+                    )}
+                  </p>
                   <p className="font-body text-sm text-foreground">{selected.evidence || "No evidence recorded"}</p>
                 </div>
                 <div className="grid grid-cols-3 gap-4 text-center">

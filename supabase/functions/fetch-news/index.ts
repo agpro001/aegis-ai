@@ -6,6 +6,35 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+async function searchWebWithFirecrawl(keywords: string): Promise<any[]> {
+  const apiKey = Deno.env.get("FIRECRAWL_API_KEY");
+  if (!apiKey) return [];
+
+  try {
+    console.log("Firecrawl news search for:", keywords);
+    const resp = await fetch("https://api.firecrawl.dev/v1/search", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: `${keywords} crypto security news latest`,
+        limit: 5,
+        tbs: "qdr:d",
+      }),
+    });
+
+    if (!resp.ok) return [];
+
+    const data = await resp.json();
+    return data.data || [];
+  } catch (e) {
+    console.error("Firecrawl news search error:", e);
+    return [];
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -15,15 +44,24 @@ serve(async (req) => {
 
     const { sentinel_id, keywords } = await req.json();
 
-    // Use AI to generate real-time threat intelligence based on current crypto security landscape
-    const prompt = `You are a DeFi security news aggregator. Generate 5 realistic, current threat intelligence items based on the latest crypto security landscape. ${keywords ? `Focus on keywords: ${keywords}` : "Cover general DeFi security threats."}
+    // Step 1: Get real news via Firecrawl
+    const webResults = await searchWebWithFirecrawl(keywords || "DeFi exploit hack");
+
+    const webContext = webResults.length > 0
+      ? `\n\nREAL NEWS ARTICLES FOUND (analyze these and include them with real titles and URLs, mark is_live: true):\n${webResults.map((r: any, i: number) => `${i + 1}. "${r.title}" - ${r.description || ""} (${r.url})`).join("\n")}`
+      : "";
+
+    const prompt = `You are a DeFi security news aggregator. Generate 5 threat intelligence items based on the latest crypto security landscape. ${keywords ? `Focus on keywords: ${keywords}` : "Cover general DeFi security threats."}
+${webContext}
 
 For each item return a JSON array with objects containing:
 - source_type: "twitter" or "news" 
-- source_text: The tweet or headline text (make it realistic, reference real security researchers like @PeckShield, @SlowMist_Team, @CertiK, @BlockSecTeam, @zachxbt)
+- source_text: The tweet or headline text (use REAL titles for web articles)
 - threat_level: "safe", "watch", or "critical"
 - confidence: a number between 0.5 and 0.99
 - ai_analysis: A brief 1-2 sentence analysis
+- url: Real URL for web articles, plausible for AI-generated
+- is_live: boolean - true for real web articles, false for AI-generated
 
 Return ONLY a valid JSON array, no markdown.`;
 
@@ -42,14 +80,12 @@ Return ONLY a valid JSON array, no markdown.`;
     if (!response.ok) {
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       if (response.status === 402) {
         return new Response(JSON.stringify({ error: "AI credits exhausted" }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       throw new Error(`AI gateway error: ${response.status}`);
@@ -58,7 +94,6 @@ Return ONLY a valid JSON array, no markdown.`;
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || "[]";
     
-    // Parse the AI response
     let newsItems;
     try {
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
@@ -67,7 +102,7 @@ Return ONLY a valid JSON array, no markdown.`;
       newsItems = [];
     }
 
-    // If we have a sentinel_id and auth, save to intelligence_logs
+    // Save to intelligence_logs if authenticated
     const authHeader = req.headers.get("Authorization");
     if (sentinel_id && authHeader) {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -94,14 +129,15 @@ Return ONLY a valid JSON array, no markdown.`;
       }
     }
 
-    return new Response(JSON.stringify({ news: newsItems }), {
+    const hasLiveData = newsItems.some((i: any) => i.is_live);
+
+    return new Response(JSON.stringify({ news: newsItems, has_live_data: hasLiveData }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
     console.error("fetch-news error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
