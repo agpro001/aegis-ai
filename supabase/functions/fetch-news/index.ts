@@ -125,6 +125,34 @@ Return ONLY a valid JSON array, no markdown.`;
 
         if (logs.length > 0) {
           await supabase.from("intelligence_logs").insert(logs);
+
+          // Auto-create incidents and send alerts for critical threats
+          const criticals = newsItems.filter((i: any) => i.threat_level === "critical");
+          for (const critical of criticals) {
+            const { data: incidentData } = await supabase.from("incidents").insert({
+              sentinel_id,
+              user_id: user.id,
+              severity: "critical",
+              evidence: critical.source_text,
+              source: critical.is_live ? `${critical.source_type} (live)` : critical.source_type,
+              ai_confidence: critical.confidence,
+              status: "investigating",
+            }).select("id").single();
+
+            await fetch(`${supabaseUrl}/functions/v1/send-alert`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: authHeader,
+              },
+              body: JSON.stringify({
+                incident_id: incidentData?.id,
+                severity: "critical",
+                evidence: critical.source_text,
+                source: critical.is_live ? `${critical.source_type} (live web)` : critical.source_type,
+              }),
+            });
+          }
         }
       }
     }
