@@ -1,63 +1,68 @@
+# Current Status and Improvement Recommendations
 
+## Already Working
 
-# Live FortiGuard Threat Data Integration
+- RESEND_API_KEY is configured
+- `fetch-news` already has auto-incident creation and alert sending for critical threats (updated in previous session)
+- Firecrawl integration active on both Dashboard and Black Box
+- Email alerts pipeline is fully wired end-to-end
 
-## Problem
-The current threat map page uses AI-generated data that simulates realistic threat intelligence. The FortiGuard threat map website loads all its data dynamically via JavaScript/WebSockets, meaning a simple HTTP fetch returns empty values (all "0"). We need a way to scrape the fully-rendered page to extract real live data.
+**No further changes needed for the original plan -- it is complete.**
 
-## Solution
-Use the **Firecrawl** connector to scrape the FortiGuard threat map page with JavaScript rendering enabled. Firecrawl can wait for the page to fully load, then extract the actual live attack data, top targeted countries, and top targeted industries directly from the rendered HTML.
+---
 
-## Changes
+## Recommended Improvements
 
-### 1. Connect Firecrawl
-- Enable the Firecrawl connector so the edge function can scrape FortiGuard's JS-rendered page
-- This gives us `FIRECRAWL_API_KEY` as an environment variable in backend functions
+Threat meter and other features in dashboard must using web datas and ai both and working properly live. No fake simulation. All real data and live data update every second.
 
-### 2. Rewrite the `threat-map-data` Edge Function
-- Replace the current AI-based approach with a Firecrawl scrape of `https://threatmap.fortiguard.com/`
-- Use Firecrawl's `scrape` endpoint with `waitFor: 5000` (5 seconds) to let the page fully render its WebSocket-fed data
-- Extract the page content in markdown format
-- Parse the scraped markdown to extract:
-  - **Real-Time Attacks**: source city/country, destination city/country, threat name, severity
-  - **Top Targeted Countries**: country names, flags, attack counts
-  - **Top Targeted Industries**: industry names, attack counts
-- Use AI (Lovable AI gateway) as a **parser** to structure the scraped markdown into clean JSON, not to generate fake data
-- Fall back to the current AI-generated approach if Firecrawl fails
+### 1. Settings Page: Wire notification toggles to database
 
-### 3. Update `ThreatMap.tsx` Frontend
-- Minor adjustments to handle the slightly different data shape from real FortiGuard data (e.g., city-level granularity instead of just country)
-- Add a "Data Source: FortiGuard Live" indicator showing data freshness
-- Keep the existing animated feed, country bars, and industry cards
+The Settings page notification switches (email alerts, toast notifications) use `defaultChecked` and don't read from or write to the `profiles` table. Changes are lost on refresh.
 
-## Data Flow
+**Fix:** Load `notification_email` and `notification_toast` from profiles, save on toggle change.
 
-```text
-FortiGuard Website (JS-rendered)
-        |
-   Firecrawl scrapes with waitFor
-        |
-   Raw markdown with live data
-        |
-   AI parses markdown into JSON
-        |
-   Edge function returns structured data
-        |
-   ThreatMap.tsx renders live panels
-```
+**File:** `src/pages/SettingsPage.tsx`
 
-## Technical Details
+### 2. Settings Page: Add display name and wallet editing
 
-### Edge Function (`supabase/functions/threat-map-data/index.ts`)
-- Step 1: Call Firecrawl scrape API on `https://threatmap.fortiguard.com/` with `formats: ['markdown']` and `waitFor: 5000`
-- Step 2: Send the scraped markdown to Lovable AI gateway with a parsing prompt and tool call schema (same schema as current)
-- Step 3: Return the parsed structured JSON
-- Fallback: If Firecrawl fails (rate limit, timeout), fall back to the current AI-generation approach
+The Settings page shows email/wallet/plan as read-only text. Users can't update their display name (used in alert emails) or wallet address.
 
-### Frontend (`src/pages/ThreatMap.tsx`)
-- Add a small badge showing "Live Data" vs "Estimated Data" based on the response
-- No major layout changes needed -- the existing panels already match the data structure
+**Fix:** Add editable fields for display name and wallet, save to profiles table.
 
-### Prerequisites
-- Firecrawl connector must be connected first (will prompt during implementation)
+**File:** `src/pages/SettingsPage.tsx`
 
+### 3. Protected routes
+
+Dashboard, Sentinels, BlackBox, Chat, Settings, Alerts pages are accessible without authentication. Unauthenticated users see empty states or errors.
+
+**Fix:** Add a `ProtectedRoute` wrapper that redirects to `/auth` if not logged in.
+
+**Files:** `src/components/ProtectedRoute.tsx`, `src/App.tsx`
+
+### 4. Dashboard: Show real-time alert count badge
+
+No visual indicator of unread/new alerts. Users must navigate to the Alerts page to check.
+
+**Fix:** Add a badge on the Alerts nav link showing unread alert count, using realtime subscription.
+
+**File:** `src/components/AppLayout.tsx`
+
+### 5. Incident resolution workflow
+
+Incidents can be created but there's no UI to resolve or dismiss them. The `status` field exists but can't be changed from the frontend.
+
+**Fix:** Add resolve/dismiss buttons on the Black Box incidents table that update the status to "resolved".
+
+**File:** `src/pages/BlackBox.tsx`
+
+---
+
+## Implementation Priority
+
+1. **Protected routes** -- security fundamental
+2. **Wire Settings toggles** -- prevents confusion, makes email prefs work
+3. **Incident resolution** -- completes the incident lifecycle
+4. **Display name editing** -- improves personalized alerts
+5. **Alert count badge** -- polish/UX
+
+All changes are frontend-only. No database migrations needed.
