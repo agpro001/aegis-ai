@@ -202,7 +202,7 @@ const LandingPage = () => {
       {/* Footer */}
       <footer className="relative z-10 border-t border-border px-6 py-8 text-center">
         <p className="font-body text-sm text-muted-foreground">
-          © 2026 Aegis-AI. Powered by Chainlink CRE & Lovable AI.
+          © 2026 Aegis-AI. Used with Chainlink CRE.
         </p>
       </footer>
     </div>
